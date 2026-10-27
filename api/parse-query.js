@@ -184,7 +184,9 @@ export default async function handler(req, res) {
       }
 
       return res.status(502).json({
-        error: "The AI request failed. Check the NVIDIA key and model name."
+        error: "The AI request failed. Check the NVIDIA key and model name.",
+        upstreamStatus: result.status,
+        upstreamDetail: JSON.stringify(result.data || {}).slice(0, 300)
       });
     }
 
