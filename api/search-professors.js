@@ -20,9 +20,25 @@ async function oa(path, params) {
 
 const shortId = (id) => String(id || "").split("/").pop();
 
+const ALIASES = {
+  "unc": "University of North Carolina at Chapel Hill",
+  "unc chapel hill": "University of North Carolina at Chapel Hill",
+  "unc-chapel hill": "University of North Carolina at Chapel Hill",
+  "nc state": "North Carolina State University",
+  "ncsu": "North Carolina State University",
+  "mit": "Massachusetts Institute of Technology",
+  "ucla": "University of California, Los Angeles",
+  "uc berkeley": "University of California, Berkeley",
+  "georgia tech": "Georgia Institute of Technology",
+  "usc": "University of Southern California"
+};
+
 async function resolveInstitution(name) {
+  const key = String(name).toLowerCase().trim();
+  const query = ALIASES[key] || name;
+
   const data = await oa("/institutions", {
-    search: name,
+    search: query,
     "per-page": 1,
     select: "id,display_name"
   });
