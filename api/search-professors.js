@@ -2,6 +2,20 @@ export const config = { maxDuration: 30 };
 
 const BASE = "https://api.openalex.org";
 
+const ALIASES = {
+  "unc": "University of North Carolina at Chapel Hill",
+  "unc chapel hill": "University of North Carolina at Chapel Hill",
+  "unc-chapel hill": "University of North Carolina at Chapel Hill",
+  "nc state": "North Carolina State University",
+  "nc state university": "North Carolina State University",
+  "ncsu": "North Carolina State University",
+  "mit": "Massachusetts Institute of Technology",
+  "ucla": "University of California, Los Angeles",
+  "uc berkeley": "University of California, Berkeley",
+  "georgia tech": "Georgia Institute of Technology",
+  "usc": "University of Southern California"
+};
+
 async function oa(path, params) {
   const url = new URL(BASE + path);
 
@@ -19,19 +33,6 @@ async function oa(path, params) {
 }
 
 const shortId = (id) => String(id || "").split("/").pop();
-
-const ALIASES = {
-  "unc": "University of North Carolina at Chapel Hill",
-  "unc chapel hill": "University of North Carolina at Chapel Hill",
-  "unc-chapel hill": "University of North Carolina at Chapel Hill",
-  "ncsu": "North Carolina State University",
-  "mit": "Massachusetts Institute of Technology",
-  "ucla": "University of California, Los Angeles",
-  "uc berkeley": "University of California, Berkeley",
-  "georgia tech": "Georgia Institute of Technology",
-  "usc": "University of Southern California"
-  "nc state university": "North Carolina State University",
-};
 
 async function resolveInstitution(name) {
   const key = String(name).toLowerCase().trim();
@@ -70,15 +71,18 @@ export default async function handler(req, res) {
 
   try {
     // 1. Turn school names into OpenAlex IDs (names are ambiguous, IDs aren't)
-    const resolved = (
-      await Promise.all(institutions.slice(0, 10).map(resolveInstitution))
+    const resolved = await Promise.all(
+      institutions.slice(0, 10).map(resolveInstitution)
     );
 
     const found = resolved.filter(Boolean);
-    const unresolved = institutions.filter((_, i) => !resolved[i]);
+    const unresolved = institutions.slice(0, 10).filter((_, i) => !resolved[i]);
 
     if (found.length === 0) {
-      return res.status(404).json({ error: "No matching institutions found.", unresolved });
+      return res.status(404).json({
+        error: "No matching institutions found.",
+        unresolved
+      });
     }
 
     const institutionIds = new Set(found.map((inst) => inst.id));
@@ -152,6 +156,8 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error("search-professors error:", error);
-    return res.status(502).json({ error: "Professor search failed. Please try again." });
+    return res.status(502).json({
+      error: "Professor search failed. Please try again."
+    });
   }
 }
