@@ -138,9 +138,32 @@ export default async function handler(req, res) {
       }
     }
 
-    const professors = [...byAuthor.values()]
-      .sort((a, b) => b.papers.length - a.papers.length)
-      .slice(0, 30)
+    const sorted = [...byAuthor.values()].sort(
+      (a, b) => b.papers.length - a.papers.length
+    );
+    
+    // Round-robin across schools so one school can't crowd out the others
+    const perSchool = new Map();
+    
+    for (const prof of sorted) {
+      const list = perSchool.get(prof.institution) || [];
+      list.push(prof);
+      perSchool.set(prof.institution, list);
+    }
+    
+    const lists = [...perSchool.values()];
+    const balanced = [];
+    
+    for (let i = 0; balanced.length < 30 && lists.some((l) => i < l.length); i++) {
+      for (const list of lists) {
+        if (i < list.length && balanced.length < 30) {
+          balanced.push(list[i]);
+        }
+      }
+    }
+    
+    const professors = balanced.map((prof) => ({
+      
       .map((prof) => ({
         ...prof,
         profileUrl: `https://openalex.org/${prof.authorId}`,
