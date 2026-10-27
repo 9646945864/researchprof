@@ -24,13 +24,13 @@ const ALIASES = {
   "unc": "University of North Carolina at Chapel Hill",
   "unc chapel hill": "University of North Carolina at Chapel Hill",
   "unc-chapel hill": "University of North Carolina at Chapel Hill",
-  "nc state": "North Carolina State University",
   "ncsu": "North Carolina State University",
   "mit": "Massachusetts Institute of Technology",
   "ucla": "University of California, Los Angeles",
   "uc berkeley": "University of California, Berkeley",
   "georgia tech": "Georgia Institute of Technology",
   "usc": "University of Southern California"
+  "nc state university": "North Carolina State University",
 };
 
 async function resolveInstitution(name) {
