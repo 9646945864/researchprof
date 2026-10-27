@@ -3,8 +3,8 @@ export const config = { maxDuration: 30 };
 const ENDPOINT = "https://integrate.api.nvidia.com/v1/chat/completions";
 
 const MODELS = [
-  process.env.NVIDIA_MODEL || "deepseek-ai/deepseek-v4.1-flash",
-  process.env.NVIDIA_FALLBACK_MODEL || "deepseek-ai/deepseek-v3.1"
+  process.env.NVIDIA_MODEL || "nv-mistralai/mistral-nemo-12b-instruct",
+  process.env.NVIDIA_FALLBACK_MODEL || "nvidia/llama-3.1-nemotron-70b-instruct"
 ];
 
 const RETRYABLE_STATUS = [429, 500, 502, 503, 504];
