@@ -138,22 +138,22 @@ export default async function handler(req, res) {
       }
     }
 
+    // 4. Rank by paper count, then balance across schools
     const sorted = [...byAuthor.values()].sort(
       (a, b) => b.papers.length - a.papers.length
     );
-    
-    // Round-robin across schools so one school can't crowd out the others
+
     const perSchool = new Map();
-    
+
     for (const prof of sorted) {
       const list = perSchool.get(prof.institution) || [];
       list.push(prof);
       perSchool.set(prof.institution, list);
     }
-    
+
     const lists = [...perSchool.values()];
     const balanced = [];
-    
+
     for (let i = 0; balanced.length < 30 && lists.some((l) => i < l.length); i++) {
       for (const list of lists) {
         if (i < list.length && balanced.length < 30) {
@@ -161,15 +161,13 @@ export default async function handler(req, res) {
         }
       }
     }
-    
+
     const professors = balanced.map((prof) => ({
-      
-      .map((prof) => ({
-        ...prof,
-        profileUrl: `https://openalex.org/${prof.authorId}`,
-        paperCount: prof.papers.length,
-        papers: prof.papers.slice(0, 3)
-      }));
+      ...prof,
+      profileUrl: `https://openalex.org/${prof.authorId}`,
+      paperCount: prof.papers.length,
+      papers: prof.papers.slice(0, 3)
+    }));
 
     return res.status(200).json({
       institutions: found,
