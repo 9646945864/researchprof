@@ -177,10 +177,11 @@ export default async function handler(req, res) {
 
     if (!result.ok) {
       if (RETRYABLE_STATUS.includes(result.status) || result.status === 404) {
-        return res.status(503).json({
-          error: "The AI is busy right now. Please try again shortly.",
-          retryable: true
-        });
+       return res.status(502).json({
+         error: "The AI request failed. Check the NVIDIA key and model name.",
+         upstreamStatus: result.status,
+         upstreamDetail: JSON.stringify(result.data || {}).slice(0, 300)
+       });
       }
 
       return res.status(502).json({
