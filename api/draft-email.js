@@ -1,26 +1,43 @@
 export const config = { maxDuration: 30 };
 
-const MODELS = ["meta/llama-3.2-11b-vision-instruct", "meta/llama-3.2-90b-vision-instruct"];
+const MODELS = [
+  { id: "meta/llama-3.2-11b-vision-instruct", timeout: 14000 },
+  { id: "meta/llama-3.2-90b-vision-instruct", timeout: 10000 }
+];
 
 async function ask(model, prompt, key) {
   const c = new AbortController();
-  const t = setTimeout(() => c.abort(), 12000);
+  const t = setTimeout(() => c.abort(), model.timeout);
+  const started = Date.now();
+
   try {
     const r = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body: JSON.stringify({
-        model,
+        model: model.id,
         messages: [{ role: "user", content: prompt }],
         temperature: 0.4,
-        max_tokens: 600
+        max_tokens: 500
       }),
       signal: c.signal
     });
-    const d = await r.json().catch(() => null);
-    return r.ok ? d?.choices?.[0]?.message?.content?.trim() || null : null;
-  } catch {
-    return null;
+
+    const raw = await r.text();
+    let d = null;
+    try { d = JSON.parse(raw); } catch {}
+
+    const text = d?.choices?.[0]?.message?.content?.trim() || null;
+
+    return {
+      text,
+      info: { model: model.id, status: r.status, ms: Date.now() - started, detail: text ? "" : raw.slice(0, 200) }
+    };
+  } catch (err) {
+    return {
+      text: null,
+      info: { model: model.id, status: err.name === "AbortError" ? "timeout" : "error", ms: Date.now() - started, detail: String(err.message || err).slice(0, 100) }
+    };
   } finally {
     clearTimeout(t);
   }
@@ -39,7 +56,7 @@ async function getAbstract(workId) {
     if (!idx) return "";
     const words = [];
     for (const [w, pos] of Object.entries(idx)) for (const p of pos) words[p] = w;
-    return words.filter(Boolean).join(" ").slice(0, 1500);
+    return words.filter(Boolean).join(" ").slice(0, 1200);
   } catch {
     return "";
   }
@@ -82,12 +99,21 @@ Rules:
 - Never invent results, quotes, or student experience that is not given above.
 - End with "Best," and the student's name. Output only the email.`;
 
+  const attempts = [];
+
   for (const model of MODELS) {
-    const email = await ask(model, prompt, key);
-    if (email) {
-      return res.status(200).json({ email: email.replace(/```/g, "").trim() });
+    const { text, info } = await ask(model, prompt, key);
+    attempts.push(info);
+
+    if (text) {
+      return res.status(200).json({ email: text.replace(/```/g, "").trim() });
     }
   }
 
-  return res.status(503).json({ error: "The AI is busy. Please try again." });
+  console.error("draft-email failed:", JSON.stringify(attempts));
+
+  return res.status(503).json({
+    error: "The AI is busy. Please try again.",
+    debug: attempts
+  });
 }
