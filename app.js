@@ -57,8 +57,7 @@ function show(list) {
       <h3>${esc(p.name)}</h3>
       <div class="sub">${esc(p.institution)} · ${esc(p.paperCount)} matching paper${p.paperCount === 1 ? "" : "s"}</div>
       <ul>${papers}</ul>
-      <a href="${esc(safe(p.profileUrl))}" target="_blank" rel="noopener">Research profile</a>
-      <a href="${esc(faculty)}" target="_blank" rel="noopener">Find faculty page</a>
+      <button type="button" data-d="${i}" style="padding:8px 14px;margin-right:8px">View details</button>
     </article>`;
   }).join("");
 }
@@ -113,3 +112,37 @@ $("f").addEventListener("submit", async (e) => {
 });
 
 say('Hi! Try: "Find professors at UNC or NC State studying AI or environment."');
+
+/* ---------- PROFESSOR DETAILS ---------- */
+
+$("out").addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-d]");
+  if (!btn) return;
+
+  const prof = lastList[btn.dataset.d];
+  $("pmb").innerHTML = '<p class="sub">Loading…</p>';
+  $("pm").style.display = "flex";
+
+  try {
+    const d = await post("/api/professor", { authorId: prof.authorId });
+
+    const papers = d.papers.map((p) =>
+      `<div style="margin:10px 0"><b>${esc(p.title)}</b> <span class="sub">(${esc(p.year)} · ${esc(p.citations)} citations)</span>
+       <div class="sub" style="margin-top:4px">${esc(p.abstract)}</div></div>`
+    ).join("");
+
+    $("pmb").innerHTML = `
+      <h2 style="margin:0">${esc(d.name)}</h2>
+      <div class="sub">${esc(d.institution)}${d.orcid ? " · ORCID " + esc(d.orcid.split("/").pop()) : ""}</div>
+      <p class="sub">${esc(d.stats.works)} papers · ${esc(d.stats.citations)} citations · h-index ${esc(d.stats.hIndex)}</p>
+      ${d.summary ? `<h4>What they study</h4><p>${esc(d.summary)}</p>` : ""}
+      <h4>Main topics</h4><p>${d.topics.map((t) => esc(t)).join(" · ")}</p>
+      <h4>Often publishes with</h4><p>${d.coauthors.map((c) => esc(c.name) + " (" + c.count + ")").join(", ")}</p>
+      <h4>Recent papers</h4>${papers}`;
+  } catch (err) {
+    console.error(err);
+    $("pmb").innerHTML = '<p class="m err">Couldn\'t load details. Try again.</p>';
+  }
+});
+
+$("pmx").addEventListener("click", () => ($("pm").style.display = "none"));
