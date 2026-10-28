@@ -8,6 +8,11 @@ const esc = (s) => {
 
 const safe = (u) => (/^https?:\/\//i.test(u || "") ? u : "#");
 
+// Attach a listener only if the element exists
+const on = (id, evt, fn) => { const el = $(id); if (el) el.addEventListener(evt, fn); };
+
+let lastList = [];
+
 function say(text, cls = "bot") {
   const el = document.createElement("div");
   el.className = "m " + cls;
@@ -37,7 +42,10 @@ async function post(url, body) {
   return data;
 }
 
+/* ---------- RESULTS ---------- */
+
 function show(list) {
+  lastList = list;
   $("n").textContent = list.length ? `(${list.length})` : "";
 
   if (!list.length) {
@@ -45,24 +53,24 @@ function show(list) {
     return;
   }
 
-  $("out").innerHTML = list.map((p) => {
+  $("out").innerHTML = list.map((p, i) => {
     const papers = (p.papers || []).map((x) =>
       `<li><a href="${esc(safe(x.doi))}" target="_blank" rel="noopener">${esc(x.title || "Untitled")}</a> (${esc(x.year)})</li>`
     ).join("");
-
-    const faculty = "https://www.google.com/search?q=" +
-      encodeURIComponent(`${p.name} ${p.institution} faculty`);
 
     return `<article class="card">
       <h3>${esc(p.name)}</h3>
       <div class="sub">${esc(p.institution)} · ${esc(p.paperCount)} matching paper${p.paperCount === 1 ? "" : "s"}</div>
       <ul>${papers}</ul>
       <button type="button" data-d="${i}" style="padding:8px 14px;margin-right:8px">View details</button>
+      <button type="button" data-i="${i}" style="padding:8px 14px">✉ Write email</button>
     </article>`;
   }).join("");
 }
 
-$("f").addEventListener("submit", async (e) => {
+/* ---------- CHAT SEARCH ---------- */
+
+on("f", "submit", async (e) => {
   e.preventDefault();
 
   const text = $("q").value.trim();
@@ -91,7 +99,7 @@ $("f").addEventListener("submit", async (e) => {
 
     show(res.professors);
 
-    const schools = res.institutions.map((i) => i.name).join(" and ");
+    const schools = res.institutions.map((s) => s.name).join(" and ");
     bot.textContent = res.professors.length
       ? `Found ${res.professors.length} researchers at ${schools}. Seniority is estimated from last-author position on recent papers.`
       : `No matches at ${schools}. Try broader topics.`;
@@ -113,13 +121,75 @@ $("f").addEventListener("submit", async (e) => {
 
 say('Hi! Try: "Find professors at UNC or NC State studying AI or environment."');
 
-/* ---------- PROFESSOR DETAILS ---------- */
+/* ---------- PROFILE (saved in this browser) ---------- */
 
-$("out").addEventListener("click", async (e) => {
-  const btn = e.target.closest("[data-d]");
-  if (!btn) return;
+const PROFILE_KEY = "rp_profile";
 
-  const prof = lastList[btn.dataset.d];
+function getProfile() {
+  return {
+    name: ($("pn")?.value || "").trim(),
+    intro: ($("pi")?.value || "").trim(),
+    project: ($("pp")?.value || "").trim()
+  };
+}
+
+try {
+  const saved = JSON.parse(localStorage.getItem(PROFILE_KEY) || "{}");
+  if ($("pn")) $("pn").value = saved.name || "";
+  if ($("pi")) $("pi").value = saved.intro || "";
+  if ($("pp")) $("pp").value = saved.project || "";
+} catch {}
+
+["pn", "pi", "pp"].forEach((id) =>
+  on(id, "input", () => {
+    try { localStorage.setItem(PROFILE_KEY, JSON.stringify(getProfile())); } catch {}
+  })
+);
+
+/* ---------- CARD BUTTONS (email + details) ---------- */
+
+on("out", "click", async (e) => {
+  /* Write email */
+  const emailBtn = e.target.closest("[data-i]");
+
+  if (emailBtn) {
+    const prof = lastList[emailBtn.dataset.i];
+    const profile = getProfile();
+
+    if (!profile.name || !profile.project) {
+      if ($("prof")) $("prof").open = true;
+      say("Fill in your name and project first (Your profile), then click Write email again.", "err");
+      return;
+    }
+
+    emailBtn.disabled = true;
+    emailBtn.textContent = "Writing…";
+
+    try {
+      const r = await post("/api/draft-email", {
+        profile,
+        professor: { name: prof.name, institution: prof.institution },
+        paper: prof.papers[0]
+      });
+
+      $("draft").value = r.email;
+      $("modal").style.display = "flex";
+    } catch (err) {
+      console.error(err);
+      say("Couldn't write that email. Try again in a moment.", "err");
+    } finally {
+      emailBtn.disabled = false;
+      emailBtn.textContent = "✉ Write email";
+    }
+
+    return;
+  }
+
+  /* View details */
+  const detailBtn = e.target.closest("[data-d]");
+  if (!detailBtn) return;
+
+  const prof = lastList[detailBtn.dataset.d];
   $("pmb").innerHTML = '<p class="sub">Loading…</p>';
   $("pm").style.display = "flex";
 
@@ -145,4 +215,13 @@ $("out").addEventListener("click", async (e) => {
   }
 });
 
-$("pmx").addEventListener("click", () => ($("pm").style.display = "none"));
+/* ---------- MODALS ---------- */
+
+on("copy", "click", () => {
+  navigator.clipboard.writeText($("draft").value);
+  $("copy").textContent = "Copied!";
+  setTimeout(() => ($("copy").textContent = "Copy"), 1500);
+});
+
+on("close", "click", () => ($("modal").style.display = "none"));
+on("pmx", "click", () => ($("pm").style.display = "none"));
