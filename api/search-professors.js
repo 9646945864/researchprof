@@ -130,6 +130,7 @@ export default async function handler(req, res) {
         }
 
         byAuthor.get(authorId).papers.push({
+          id: work.id,
           title: work.title,
           year: work.publication_year,
           doi: work.doi,
