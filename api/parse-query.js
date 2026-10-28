@@ -2,9 +2,10 @@ export const config = { maxDuration: 30 };
 
 const ENDPOINT = "https://integrate.api.nvidia.com/v1/chat/completions";
 
+// Hardcoded on purpose: this is the model that returned 200 in the test
 const MODELS = [
-  process.env.NVIDIA_MODEL || "nv-mistralai/mistral-nemo-12b-instruct",
-  process.env.NVIDIA_FALLBACK_MODEL || "nvidia/llama-3.1-nemotron-70b-instruct"
+  "meta/llama-3.2-11b-vision-instruct",
+  "meta/llama-3.2-90b-vision-instruct"
 ];
 
 const RETRYABLE_STATUS = [429, 500, 502, 503, 504];
@@ -14,7 +15,7 @@ const TOTAL_BUDGET_MS = 24000;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function callNvidia(model, systemPrompt, userText, apiKey) {
+async function callNvidia(model, prompt, apiKey) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -27,12 +28,10 @@ async function callNvidia(model, systemPrompt, userText, apiKey) {
       },
       body: JSON.stringify({
         model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userText }
-        ],
+        // One user message, no system role: works on every model
+        messages: [{ role: "user", content: prompt }],
         temperature: 0,
-        max_tokens: 400
+        max_tokens: 500
       }),
       signal: controller.signal
     });
@@ -46,21 +45,22 @@ async function callNvidia(model, systemPrompt, userText, apiKey) {
       data = null;
     }
 
-    return { ok: response.ok, status: response.status, data };
+    return { ok: response.ok, status: response.status, data, raw: raw.slice(0, 300) };
   } catch (err) {
     return {
       ok: false,
       status: err.name === "AbortError" ? 504 : 503,
-      data: null
+      data: null,
+      raw: String(err.message || err).slice(0, 300)
     };
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function generateWithFallback(systemPrompt, userText, apiKey) {
+async function generateWithFallback(prompt, apiKey) {
   const startedAt = Date.now();
-  let last = { ok: false, status: 503, data: null };
+  let last = { ok: false, status: 503, data: null, raw: "", model: MODELS[0] };
 
   for (const model of MODELS) {
     for (let attempt = 1; attempt <= ATTEMPTS_PER_MODEL; attempt++) {
@@ -68,28 +68,28 @@ async function generateWithFallback(systemPrompt, userText, apiKey) {
         return last;
       }
 
-      const result = await callNvidia(model, systemPrompt, userText, apiKey);
+      const result = await callNvidia(model, prompt, apiKey);
 
       if (result.ok) {
-        return result;
+        return { ...result, model };
       }
 
-      last = result;
+      last = { ...result, model };
 
       console.error(
         `NVIDIA ${model} attempt ${attempt} failed:`,
         result.status,
-        JSON.stringify(result.data || {}).slice(0, 300)
+        result.raw
       );
 
-      // Wrong model name: try the next model
+      // Model not available: skip to the next model
       if (result.status === 404) {
         break;
       }
 
       // Bad key, bad request, etc.: retrying won't help
       if (!RETRYABLE_STATUS.includes(result.status)) {
-        return result;
+        return last;
       }
 
       if (attempt < ATTEMPTS_PER_MODEL) {
@@ -126,7 +126,7 @@ const cleanList = (value, max) =>
         .slice(0, max)
     : [];
 
-const SYSTEM_PROMPT = `
+const INSTRUCTIONS = `
 You extract a research-professor search from a student's message.
 
 Return ONLY one valid JSON object, with no markdown and no explanation:
@@ -164,30 +164,31 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Missing text" });
   }
 
-  const apiKey = process.env.NVIDIA_API_KEY;
+  const apiKey = (process.env.NVIDIA_API_KEY || "").trim();
 
   if (!apiKey) {
     return res.status(500).json({ error: "NVIDIA_API_KEY is missing" });
   }
 
   try {
-    const userText = `Student message:\n${JSON.stringify(text.slice(0, 500))}`;
+    const prompt = `${INSTRUCTIONS}\nStudent message:\n${JSON.stringify(text.slice(0, 500))}\n\nOutput:`;
 
-    const result = await generateWithFallback(SYSTEM_PROMPT, userText, apiKey);
+    const result = await generateWithFallback(prompt, apiKey);
 
     if (!result.ok) {
-      if (RETRYABLE_STATUS.includes(result.status) || result.status === 404) {
-       return res.status(502).json({
-         error: "The AI request failed. Check the NVIDIA key and model name.",
-         upstreamStatus: result.status,
-         upstreamDetail: JSON.stringify(result.data || {}).slice(0, 300)
-       });
+      if (RETRYABLE_STATUS.includes(result.status)) {
+        return res.status(503).json({
+          error: "The AI is busy right now. Please try again shortly.",
+          retryable: true
+        });
       }
 
+      // Debug fields: safe to share, they contain no key
       return res.status(502).json({
         error: "The AI request failed. Check the NVIDIA key and model name.",
+        failedModel: result.model,
         upstreamStatus: result.status,
-        upstreamDetail: JSON.stringify(result.data || {}).slice(0, 300)
+        upstreamDetail: result.raw
       });
     }
 
