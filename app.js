@@ -12,6 +12,7 @@ const safe = (u) => (/^https?:\/\//i.test(u || "") ? u : "#");
 const on = (id, evt, fn) => { const el = $(id); if (el) el.addEventListener(evt, fn); };
 
 let lastList = [];
+let pending = { institutions: [], topics: [] };
 
 function say(text, cls = "bot") {
   const el = document.createElement("div");
@@ -85,17 +86,27 @@ on("f", "submit", async (e) => {
   try {
     const query = await post("/api/parse-query", { text });
 
-    if (!query.institutions.length || !query.topics.length) {
-      bot.textContent = query.reply || "Tell me which schools and topics you want.";
+    pending.institutions = [...new Set([...pending.institutions, ...query.institutions])];
+    pending.topics = [...new Set([...pending.topics, ...query.topics])];
+
+    if (!pending.institutions.length) {
+      bot.textContent = "Which schools should I search?";
       return;
     }
 
-    bot.textContent = `Searching ${query.institutions.join(", ")} for ${query.topics.join(", ")}…`;
+    if (!pending.topics.length) {
+      bot.textContent = "Which research topics are you interested in?";
+      return;
+    }
+
+    bot.textContent = `Searching ${pending.institutions.join(", ")} for ${pending.topics.join(", ")}…`;
 
     const res = await post("/api/search-professors", {
-      institutions: query.institutions,
-      topics: query.topics
+      institutions: pending.institutions,
+      topics: pending.topics
     });
+
+    pending = { institutions: [], topics: [] };
 
     show(res.professors);
 
