@@ -8,10 +8,9 @@ const MODELS = [
   "meta/llama-3.2-90b-vision-instruct"
 ];
 
-const RETRYABLE_STATUS = [429, 500, 502, 503, 504];
-const ATTEMPTS_PER_MODEL = 2;
-const REQUEST_TIMEOUT_MS = 10000;
-const TOTAL_BUDGET_MS = 24000;
+const ATTEMPTS_PER_MODEL = 1;
+const REQUEST_TIMEOUT_MS = 4500;
+const TOTAL_BUDGET_MS = 9000;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
