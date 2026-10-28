@@ -84,7 +84,19 @@ on("f", "submit", async (e) => {
   const bot = say("Reading that…");
 
   try {
-    const query = await post("/api/parse-query", { text });
+        let query;
+
+        try {
+          query = await post("/api/parse-query", { text });
+        } catch (err) {
+          // One automatic retry for temporary AI or gateway failures
+          if ([502, 503, 504].includes(err.status)) {
+            bot.textContent = "AI is slow, retrying…";
+            query = await post("/api/parse-query", { text });
+          } else {
+            throw err;
+          }
+        }
 
     pending.institutions = [...new Set([...pending.institutions, ...query.institutions])];
     pending.topics = [...new Set([...pending.topics, ...query.topics])];
@@ -121,7 +133,7 @@ on("f", "submit", async (e) => {
   } catch (err) {
     console.error(err);
     bot.className = "m err";
-    bot.textContent = err.status === 503
+    bot.textContent = [503, 504].includes(err.status)
       ? "The AI is busy. Try again in a minute."
       : "Something went wrong. Try rephrasing.";
   } finally {
