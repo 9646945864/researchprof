@@ -2,14 +2,11 @@ export const config = { maxDuration: 30 };
 
 const ENDPOINT = "https://integrate.api.nvidia.com/v1/chat/completions";
 
-const MODELS = [
-  "meta/llama-3.2-11b-vision-instruct",
-  "meta/llama-3.2-90b-vision-instruct"
-];
+const MODELS = ["meta/llama-3.2-11b-vision-instruct"];
 
 const RETRYABLE = [429, 500, 502, 503, 504];
-const REQUEST_TIMEOUT_MS = 5000;
-const TOTAL_BUDGET_MS = 10000;
+const REQUEST_TIMEOUT_MS = 8500;
+const TOTAL_BUDGET_MS = 9000;
 
 async function callNvidia(model, prompt, apiKey) {
   const controller = new AbortController();
