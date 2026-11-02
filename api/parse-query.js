@@ -2,17 +2,14 @@ export const config = { maxDuration: 30 };
 
 const ENDPOINT = "https://integrate.api.nvidia.com/v1/chat/completions";
 
-// Hardcoded on purpose: this is the model that returned 200 in the test
 const MODELS = [
   "meta/llama-3.2-11b-vision-instruct",
   "meta/llama-3.2-90b-vision-instruct"
 ];
 
-const ATTEMPTS_PER_MODEL = 1;
-const REQUEST_TIMEOUT_MS = 4500;
-const TOTAL_BUDGET_MS = 9000;
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const RETRYABLE = [429, 500, 502, 503, 504];
+const REQUEST_TIMEOUT_MS = 5000;
+const TOTAL_BUDGET_MS = 10000;
 
 async function callNvidia(model, prompt, apiKey) {
   const controller = new AbortController();
@@ -27,10 +24,9 @@ async function callNvidia(model, prompt, apiKey) {
       },
       body: JSON.stringify({
         model,
-        // One user message, no system role: works on every model
         messages: [{ role: "user", content: prompt }],
         temperature: 0,
-        max_tokens: 500
+        max_tokens: 400
       }),
       signal: controller.signal
     });
@@ -44,63 +40,38 @@ async function callNvidia(model, prompt, apiKey) {
       data = null;
     }
 
-    return { ok: response.ok, status: response.status, data, raw: raw.slice(0, 300) };
+    return { ok: response.ok, status: response.status, data, raw: raw.slice(0, 300), model };
   } catch (err) {
     return {
       ok: false,
       status: err.name === "AbortError" ? 504 : 503,
       data: null,
-      raw: String(err.message || err).slice(0, 300)
+      raw: String(err.message || err).slice(0, 200),
+      model
     };
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function generateWithFallback(prompt, apiKey) {
+async function generate(prompt, apiKey) {
   const startedAt = Date.now();
   let last = { ok: false, status: 503, data: null, raw: "", model: MODELS[0] };
 
   for (const model of MODELS) {
-    for (let attempt = 1; attempt <= ATTEMPTS_PER_MODEL; attempt++) {
-      if (Date.now() - startedAt > TOTAL_BUDGET_MS) {
-        return last;
-      }
+    if (Date.now() - startedAt > TOTAL_BUDGET_MS) break;
 
-      const result = await callNvidia(model, prompt, apiKey);
+    const result = await callNvidia(model, prompt, apiKey);
 
-      if (result.ok) {
-        return { ...result, model };
-      }
+    if (result.ok) return result;
 
-      last = { ...result, model };
-
-      console.error(
-        `NVIDIA ${model} attempt ${attempt} failed:`,
-        result.status,
-        result.raw
-      );
-
-      // Model not available: skip to the next model
-      if (result.status === 404) {
-        break;
-      }
-
-      // Bad key, bad request, etc.: retrying won't help
-      if (!RETRYABLE_STATUS.includes(result.status)) {
-        return last;
-      }
-
-      if (attempt < ATTEMPTS_PER_MODEL) {
-        await sleep(700 * 2 ** (attempt - 1) + Math.random() * 300);
-      }
-    }
+    last = result;
+    console.error(`NVIDIA ${model} failed:`, result.status, result.raw);
   }
 
   return last;
 }
 
-// Models sometimes wrap JSON in ```json fences or add a sentence around it
 function extractJSON(text) {
   if (typeof text !== "string") return null;
 
@@ -157,7 +128,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { text } = req.body || {};
+  const text = req.body?.text;
 
   if (typeof text !== "string" || !text.trim()) {
     return res.status(400).json({ error: "Missing text" });
@@ -172,22 +143,20 @@ export default async function handler(req, res) {
   try {
     const prompt = `${INSTRUCTIONS}\nStudent message:\n${JSON.stringify(text.slice(0, 500))}\n\nOutput:`;
 
-    const result = await generateWithFallback(prompt, apiKey);
+    const result = await generate(prompt, apiKey);
 
     if (!result.ok) {
-      if (RETRYABLE_STATUS.includes(result.status)) {
+      if (RETRYABLE.includes(result.status)) {
         return res.status(503).json({
           error: "The AI is busy right now. Please try again shortly.",
-          retryable: true
+          retryable: true,
+          debug: `${result.model}: ${result.status} ${result.raw}`.slice(0, 250)
         });
       }
 
-      // Debug fields: safe to share, they contain no key
       return res.status(502).json({
-        error: "The AI request failed. Check the NVIDIA key and model name.",
-        failedModel: result.model,
-        upstreamStatus: result.status,
-        upstreamDetail: result.raw
+        error: "The AI request failed.",
+        debug: `${result.model}: ${result.status} ${result.raw}`.slice(0, 250)
       });
     }
 
@@ -196,7 +165,10 @@ export default async function handler(req, res) {
 
     if (!parsed) {
       console.error("Unparseable model output:", String(content).slice(0, 300));
-      return res.status(502).json({ error: "The AI returned invalid data." });
+      return res.status(502).json({
+        error: "The AI returned invalid data.",
+        debug: String(content).slice(0, 200)
+      });
     }
 
     return res.status(200).json({
@@ -207,11 +179,11 @@ export default async function handler(req, res) {
         : null,
       reply: typeof parsed.reply === "string" ? parsed.reply.slice(0, 300) : ""
     });
-    } catch (error) {
-      console.error("parse-query error:", error);
-      return res.status(500).json({
-        error: "Could not read that. Please try again.",
-        debug: String(error?.message || error).slice(0, 200)
-      });
+  } catch (error) {
+    console.error("parse-query error:", error);
+    return res.status(500).json({
+      error: "Could not read that. Please try again.",
+      debug: String(error?.message || error).slice(0, 200)
+    });
   }
 }
