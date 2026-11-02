@@ -207,8 +207,11 @@ export default async function handler(req, res) {
         : null,
       reply: typeof parsed.reply === "string" ? parsed.reply.slice(0, 300) : ""
     });
-  } catch (error) {
-    console.error("parse-query error:", error);
-    return res.status(500).json({ error: "Could not read that. Please try again." });
+    } catch (error) {
+      console.error("parse-query error:", error);
+      return res.status(500).json({
+        error: "Could not read that. Please try again.",
+        debug: String(error?.message || error).slice(0, 200)
+      });
   }
 }
